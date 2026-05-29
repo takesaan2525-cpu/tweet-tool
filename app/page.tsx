@@ -12,6 +12,7 @@ type Template = {
   category: string;
   emoji: string;
   title: string;
+  type?: 'tweet' | 'dm';
   vars: VarDef[];
   build: (v: Record<string, string>) => string;
 };
@@ -180,9 +181,40 @@ https://lin.ee/Y4Uq7uP
 
 #個人事業主 #集客 #ホームページ`,
   },
+  {
+    id: 8,
+    category: 'DM',
+    emoji: '📨',
+    title: 'はじめまして営業DM',
+    type: 'dm',
+    vars: [
+      { key: '業種', label: '相手の業種（任意）', placeholder: '例：美容室、エステサロン' },
+    ],
+    build: (v) =>
+      `はじめまして！
+個人事業主様${v['業種'] ? `・${v['業種']}様` : ''}や中小企業様のホームページ制作をしているGrowUPの小林と申します。
+
+ホームページがあると
+・Google検索から新規のお客様が来るので予約率が上昇
+・インスタに誘導できる
+・24時間予約受付ができる
+・お店の安心感
+・他サロンとの差別化
+・サイトに全てのリンクを収められる
+
+などメリットは上げたらきりがないです。
+
+こんなページが作れます👇
+https://growup-support.netlify.app/lumiere
+
+他社だと制作費100〜200万・月3万が相場ですが
+GrowUPは制作費60,000円・月1万円で管理もお任せできます。
+もちろん月単位で解約可能です。
+もし興味あれば気軽にご相談ください😊`,
+  },
 ];
 
-const CATEGORIES = ['すべて', '実績', '豆知識', '営業', '共感'];
+const CATEGORIES = ['すべて', '実績', '豆知識', '営業', '共感', 'DM'];
 const MAX_CHARS = 280;
 
 /* ─────────────────────────────────────────────
@@ -204,13 +236,16 @@ export default function Page() {
   const selected = TEMPLATES.find((t) => t.id === selectedId) ?? null;
 
   const tweetText = selected ? selected.build(vars) : '';
-  const charCount = [...tweetText].length; // 絵文字も1文字カウント
-  const charColor =
-    charCount > MAX_CHARS
+  const isDM = selected?.type === 'dm';
+  const charCount = [...tweetText].length;
+  const charColor = isDM
+    ? 'text-zinc-400'
+    : charCount > MAX_CHARS
       ? 'text-red-400'
       : charCount > 240
         ? 'text-yellow-400'
         : 'text-zinc-400';
+  const charLimit = isDM ? '—' : MAX_CHARS;
 
   const tweetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetText)}`;
 
@@ -334,38 +369,55 @@ export default function Page() {
                         {tweetText}
                       </p>
                       <div className={`text-xs mt-3 text-right font-mono ${charColor}`}>
-                        {charCount} / {MAX_CHARS}
+                        {charCount} / {charLimit}
+                        {isDM && <span className="ml-2 text-zinc-600">DM用</span>}
                       </div>
                     </div>
 
-                    {/* 投稿ボタン */}
-                    <a
-                      href={tweetUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={`flex items-center justify-center gap-2 w-full py-4 rounded-xl font-black text-lg transition-all ${
-                        charCount > MAX_CHARS
-                          ? 'bg-zinc-700 text-zinc-500 cursor-not-allowed pointer-events-none'
-                          : 'bg-black border-2 border-zinc-600 hover:border-zinc-400 hover:bg-zinc-900 active:scale-95'
-                      }`}
-                    >
-                      {/* X (Twitter) ロゴ */}
-                      <svg className="w-5 h-5 fill-white" viewBox="0 0 24 24">
-                        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.748l7.73-8.835L1.254 2.25H8.08l4.253 5.622 5.911-5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-                      </svg>
-                      Xで投稿する
-                    </a>
-
-                    {/* コピーボタン */}
-                    <button
-                      onClick={async () => {
-                        await navigator.clipboard.writeText(tweetText);
-                        alert('コピーしました！');
-                      }}
-                      className="w-full py-2.5 rounded-xl text-sm font-bold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors"
-                    >
-                      📋 テキストをコピー
-                    </button>
+                    {/* ボタン：DMはコピーメイン、ツイートはX投稿メイン */}
+                    {isDM ? (
+                      <>
+                        <button
+                          onClick={async () => {
+                            await navigator.clipboard.writeText(tweetText);
+                            alert('コピーしました！DMに貼り付けて送信してください');
+                          }}
+                          className="flex items-center justify-center gap-2 w-full py-4 rounded-xl font-black text-lg bg-blue-600 hover:bg-blue-500 active:scale-95 transition-all"
+                        >
+                          📋 コピーしてDMに貼り付ける
+                        </button>
+                        <p className="text-center text-xs text-zinc-600">
+                          コピー後、Instagram・X・LINEのDMに貼り付けてください
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <a
+                          href={tweetUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`flex items-center justify-center gap-2 w-full py-4 rounded-xl font-black text-lg transition-all ${
+                            charCount > MAX_CHARS
+                              ? 'bg-zinc-700 text-zinc-500 cursor-not-allowed pointer-events-none'
+                              : 'bg-black border-2 border-zinc-600 hover:border-zinc-400 hover:bg-zinc-900 active:scale-95'
+                          }`}
+                        >
+                          <svg className="w-5 h-5 fill-white" viewBox="0 0 24 24">
+                            <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.748l7.73-8.835L1.254 2.25H8.08l4.253 5.622 5.911-5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+                          </svg>
+                          Xで投稿する
+                        </a>
+                        <button
+                          onClick={async () => {
+                            await navigator.clipboard.writeText(tweetText);
+                            alert('コピーしました！');
+                          }}
+                          className="w-full py-2.5 rounded-xl text-sm font-bold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors"
+                        >
+                          📋 テキストをコピー
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
