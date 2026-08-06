@@ -1,0 +1,9 @@
+{
+  "name": "GrowUP サポート",
+  "short_name": "GrowUP",
+  "description": "メンエス・夜職店舗向け 業務自動化ツール｜GrowUP サポート",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#09090b",
+  "theme_color": "#09090b"
+}

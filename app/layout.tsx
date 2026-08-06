@@ -2,14 +2,25 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'X投稿ツール | GrowUP サポート',
-  description: 'ホームページ制作サービスの営業・集客用Xワンクリック投稿ツール',
+  title: 'GrowUP 店舗DX',
+  description: 'メンズエステ店舗向け業務自動化システム｜掲載更新・ネット予約・LINE通知・予約管理を1つの管理画面にまとめます。',
+  manifest: '/manifest.webmanifest',
+  appleWebApp: {
+    capable: true,
+    title: 'GrowUP',
+    statusBarStyle: 'black-translucent',
+  },
+  other: {
+    'apple-mobile-web-app-capable': 'yes',
+  },
 };
 
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
+  viewportFit: 'cover',
+  themeColor: '#09090b',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
