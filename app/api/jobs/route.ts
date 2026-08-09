@@ -151,11 +151,19 @@ export async function POST(req: Request) {
     let sites: string[] | undefined;
 
     if (def.danger) {
-      // 卒業＝媒体から下げる。相手1名を必ず指定させる（従来どおり）
+      // 卒業＝媒体から下げる／削除する。相手1名を必ず指定させる（従来どおり）
       const raw = String((b as { only?: unknown }).only ?? '').trim();
       if (!raw) return NextResponse.json({ ok: false, error: '対象の名前がありません' }, { status: 400 });
       if (raw.length > 20 || /[\s;&|<>`$"'=,]/.test(raw)) {
         return NextResponse.json({ ok: false, error: '対象の名前が正しくありません' }, { status: 400 });
+      }
+      /* ★★2026-08-09：在籍名簿との「完全一致」をここでも見る。
+         削除（cast_delete）は取り消せないので、名簿に無い文字列が
+         店のPCまで届くこと自体を防ぐ。スクリプト側にも同じ確認があり、二重の歯止め。
+         ★部分一致にはしない（「ゆう」で「ゆうか」が消える）。 */
+      const roster = new Set((await getCasts()).map((c) => c.name));
+      if (!roster.has(raw)) {
+        return NextResponse.json({ ok: false, error: `在籍にない名前です：${raw}` }, { status: 400 });
       }
       only = [raw];
     } else if (def.params) {

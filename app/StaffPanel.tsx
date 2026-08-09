@@ -89,25 +89,31 @@ export default function StaffPanel() {
     setSaving('');
   }
 
-  /* ★卒業その1＝媒体から下げる（非表示にする）。
-     じゃぱん・リフナビ・MAP・ランキングを非表示にするだけで、消さないので元に戻せる。
+  /* ★卒業その1＝各サイトから削除する（2026-08-09 に「非表示」から変更）。
+     じゃぱん・リフナビ・MAP・ランキング・エス魂・エステラブの6媒体から消す。
+     駅ちかだけは媒体側が一括削除しか用意しておらず、取り違えると別の子まで
+     消えるので手作業のまま残している。
+     ★★これは取り消せない。だから確認は「はい/いいえ」ではなく
+       キャスト名を打ってもらう（押し間違いでは絶対に進まないようにする）。
      実際に動かすのは店のPCの runner.js なので、ここではお願いを1件積むだけ。 */
-  async function hideOnSites(c: Cast) {
-    if (!confirm(
-      `「${c.name}」を各サイトで非表示にします。\n\n`
-      + '対象：メンエスじゃぱん／リフナビ／メンエスMAP／全国ランキング\n'
-      + '※消すのではなく隠すだけなので、あとから戻せます。\n'
-      + '※駅ちか・エス魂・エステラブは手作業が必要です。\n\n'
-      + 'よろしいですか？',
-    )) return;
+  async function deleteOnSites(c: Cast) {
+    const typed = prompt(
+      `「${c.name}」を各サイトから削除します。\n\n`
+      + '対象：メンエスじゃぱん／リフナビ／メンエスMAP／全国ランキング／エス魂／エステラブ\n'
+      + '★★この操作は取り消せません（非表示ではなく削除です）。\n'
+      + '※駅ちかだけは管理画面から手作業でお願いします。\n\n'
+      + `よろしければ、確認のため「${c.name}」と入力してください：`,
+    );
+    if (typed === null) return; // キャンセル
+    if (typed.trim() !== c.name) { setMsg('⚠️ 名前が一致しないので中止しました'); return; }
     setSaving(c.id!); setMsg('');
     try {
       const r = await fetch('/api/jobs', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'enqueue', id: 'cast_remove', only: c.name }),
+        body: JSON.stringify({ action: 'enqueue', id: 'cast_delete', only: c.name }),
       }).then((res) => res.json());
       setMsg(r?.ok
-        ? `✅ 「${c.name}」を各サイトで非表示にする指示を出しました。反映まで数分かかります`
+        ? `✅ 「${c.name}」を各サイトから削除する指示を出しました。エステラブを含むので10分ほどかかります`
         : '⚠️ ' + (r?.error ?? '受け付けできませんでした'));
     } catch { setMsg('⚠️ 通信エラー'); }
     setSaving('');
@@ -208,10 +214,10 @@ export default function StaffPanel() {
 
             <div className="mt-3 flex gap-2">
               <button onClick={() => startEdit(c)} className="flex-1 py-2 rounded-lg bg-zinc-800 text-xs font-bold">✏️ 編集</button>
-              {/* 卒業は2段階：①サイトから隠す（戻せる）→②名簿から消す（戻せない） */}
-              <button onClick={() => hideOnSites(c)} disabled={saving === c.id}
+              {/* 卒業は2段階：①各サイトから削除する（戻せない）→②名簿から消す（戻せない） */}
+              <button onClick={() => deleteOnSites(c)} disabled={saving === c.id}
                 className="px-3 py-2 rounded-lg bg-amber-600/80 text-xs font-bold disabled:opacity-50 whitespace-nowrap">
-                サイトから下げる
+                サイトから削除
               </button>
               <button onClick={() => remove(c)} disabled={saving === c.id}
                 className="px-3 py-2 rounded-lg bg-red-600/80 text-xs font-bold disabled:opacity-50">🗑 卒業</button>
@@ -227,9 +233,10 @@ export default function StaffPanel() {
         ・「本日出勤」にした子だけ予約画面の「本日出勤」に並びます<br />
         ・LINE連携した本日出勤の子は、予約が入るとその子のLINEに直接届きます<br />
         ・未連携・お休みの子の予約は、店のLINEに届きます<br />
-        ・辞めた子は「サイトから下げる」→ 各サイトで非表示になります（隠すだけなので戻せます）<br />
-        ・そのあと「卒業」を押すと名簿から消えます（こちらは取り消せません）<br />
-        ・駅ちか・エス魂・エステラブの3つは、管理画面から手作業でお願いします
+        ・辞めた子は「サイトから削除」→ 6サイト（じゃぱん・リフナビ・MAP・ランキング・エス魂・エステラブ）から消えます<br />
+        ・★削除は取り消せません。押すと名前の入力を求めます<br />
+        ・そのあと「卒業」を押すと名簿から消えます（こちらも取り消せません）<br />
+        ・駅ちかだけは、管理画面から手作業で削除をお願いします
       </p>
     </div>
   );
