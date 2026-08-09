@@ -13,6 +13,37 @@
 
 export type JobKind = 'attend' | 'boost' | 'post' | 'cast';
 
+/* ═══ 媒体キーの正 ═══════════════════════════════════════════
+   scraper/ 各スクリプトの --site= に渡すキー。ここに無いキーは
+   /api/jobs が受け取らない（＝鍵なしで押せるページから任意の文字列が
+   スクリプトに流れ込むのを防ぐホワイトリスト）。
+   ★scraper 側の ADAPTERS のキーと一致していること。 */
+export const SITES = [
+  { key: 'deki',    label: '駅ちか' },
+  { key: 'mensest', label: 'じゃぱん' },
+  { key: 'refle',   label: 'リフナビ' },
+  { key: 'map',     label: 'MAP' },
+  { key: 'rank',    label: 'ランキング' },
+  { key: 'estama',  label: 'エス魂' },
+  { key: 'eslove',  label: 'エステラブ' },
+] as const;
+
+export type SiteKey = (typeof SITES)[number]['key'];
+
+export const SITE_KEYS: string[] = SITES.map((s) => s.key);
+export const SITE_LABEL: Record<string, string> =
+  Object.fromEntries(SITES.map((s) => [s.key, s.label]));
+
+/** そのジョブが受け取れる引数の宣言。書いていないジョブは引数を一切受け取らない。 */
+export type JobParams = {
+  /** --only=名前,名前 を受け取る（値は在籍名簿にある名前だけ通す） */
+  only?: boolean;
+  /** --site=キー,キー を受け取る。ここに書いたキーだけが選択肢になる。
+      ★スクリプトが実際に対応している媒体だけ書くこと。対応していない
+        キーを渡すと黙って何もしない＝「押したのに入らない」になる。 */
+  sites?: SiteKey[];
+};
+
 export type JobDef = {
   id: string;
   name: string;      // 画面に出す名前
@@ -27,6 +58,9 @@ export type JobDef = {
   confirm?: boolean;
   /** 取り消せない操作。画面で名前を打たせてから実行する。 */
   danger?: boolean;
+  /** 「この子だけ・この媒体だけ」を画面から受け取れるようにする宣言。
+      ★宣言が無いジョブは引数を無視する＝ボタンに勝手な引数を足せない。 */
+  params?: JobParams;
   /** 1回の実行に許す時間（秒）。省略＝DEFAULT_TIMEOUT_SEC。
       ★媒体ごとにブラウザを開き直すジョブは実時間が長い。ここを短くすると
         「動いているのに時間切れで打ち切られる」＝直っていないように見える。 */
@@ -170,6 +204,10 @@ export const JOBS: JobDef[] = [
     cooldownSec: 300,
     confirm: true,
     timeoutSec: 25 * 60, // 5媒体 × 人数ぶん編集画面を開く
+    /* ★2026-08-09：「1人だけ直したい」のに26名×5媒体が毎回走るのをやめるため、
+       画面から子と媒体を選べるようにした。エステラブと駅ちかはこのスクリプトに
+       アダプタが無いので選択肢に出さない（cast_profile_push.js の ADAPTERS が正）。 */
+    params: { only: true, sites: ['mensest', 'refle', 'map', 'rank', 'estama'] },
   },
   {
     /* エステラブは1アカウント1ログイン制で「新人をサイトに登録」からは触れない。

@@ -206,6 +206,10 @@ export default function SystemPage() {
                 className="text-[10px] font-bold text-blue-300 bg-blue-500/10 border border-blue-500/30 rounded-full px-2 py-1 active:scale-95 transition">
                 ⏱ 投稿時刻
               </a>
+              <a href="/photos"
+                className="text-[10px] font-bold text-pink-300 bg-pink-500/10 border border-pink-500/30 rounded-full px-2 py-1 active:scale-95 transition">
+                🖼 新着の写真
+              </a>
               <a href="/status"
                 className="text-[10px] font-bold text-zinc-300 bg-zinc-700/40 border border-zinc-600 rounded-full px-2 py-1 active:scale-95 transition">
                 稼働状況

@@ -1,6 +1,7 @@
 import { Redis } from '@upstash/redis';
 import { NextResponse } from 'next/server';
-import { JOBS, JOB_BY_ID, timeoutSecOf } from '../../jobs.config';
+import { JOBS, JOB_BY_ID, timeoutSecOf, SITE_LABEL } from '../../jobs.config';
+import { getCasts } from '../casts/route';
 
 /* ───────────────────────────────────────────────
    手動実行キュー（/status の「今すぐ実行」ボタンの受け口）
@@ -31,9 +32,20 @@ export type JobState = {
   lastRunAt?: number;  // 最後に終わった時刻(ms)
   lastOk?: boolean;    // 最後の結果
   lastMessage?: string;// 最後のひとこと（画面に出す）
-  /** 押した時に指定された相手（卒業させる子の名前など）。runnerに --only= で渡る */
-  only?: string;
+  /** 押した時に指定された相手（卒業させる子／選択更新で選ばれた子）。runnerに --only= で渡る。
+      ★昔は名前1個の文字列で保存していた。読むときは asList() で吸収する。 */
+  only?: string[] | string;
+  /** 選択更新で選ばれた媒体キー。runnerに --site= で渡る */
+  sites?: string[];
+  /** 最後の実行が「誰・どの媒体」を対象にしたか（画面に出す。空＝全員×全媒体） */
+  lastTarget?: string;
 };
+
+/** 旧形式（文字列1個）で保存された値も配列として読む */
+const asList = (v: unknown): string[] =>
+  Array.isArray(v) ? v.map(String).filter(Boolean)
+    : typeof v === 'string' && v ? [v]
+    : [];
 
 /** runnerが実行中のままPCが落ちた場合に、いつまでもrunningで固まらないための時効。
     ★ジョブごとの持ち時間(timeoutSec)より必ず長くすること。
@@ -90,7 +102,12 @@ export async function GET() {
     return {
       id: j.id, name: j.name, desc: j.desc, kind: j.kind,
       danger: Boolean(j.danger),
+      /* 画面が「子と媒体の選択欄」を出すかどうかの判断材料。
+         選べる媒体はジョブごとに違う（スクリプトが対応している媒体だけ）。 */
+      params: j.params ?? null,
       status: s.status,
+      /** 前回どの範囲で走ったか（「1人だけ直したのに全員に見える」を防ぐ表示用） */
+      lastTarget: s.lastTarget ?? '',
       lastRunAt: s.lastRunAt ?? null,
       lastOk: s.lastOk ?? null,
       lastMessage: s.lastMessage ?? '',
@@ -124,20 +141,53 @@ export async function POST(req: Request) {
         { status: 429 },
       );
     }
-    /* 「誰に対して」を伴う操作（卒業＝媒体から下げる）だけ、押した時の相手を受け取る。
-       それ以外のジョブでは無視する＝ボタンに勝手な引数を足せないようにする。 */
-    let only: string | undefined;
+    /* ★このAPIは鍵なしで叩ける（中村さんがスマホから押せることを優先している）。
+       ＝ここに来る値は全部「他人が好きに書ける文字列」だと思って扱う。
+       受け取るのは ①jobs.config が params で宣言したジョブ ②卒業（danger）だけで、
+       値は必ずホワイトリスト照合してから通す（形のチェックだけでは足りない）。 */
+    let only: string[] | undefined;
+    let sites: string[] | undefined;
+
     if (def.danger) {
+      // 卒業＝媒体から下げる。相手1名を必ず指定させる（従来どおり）
       const raw = String((b as { only?: unknown }).only ?? '').trim();
       if (!raw) return NextResponse.json({ ok: false, error: '対象の名前がありません' }, { status: 400 });
-      // 記号を含む名前は扱わない（runner側でも --only= の形を再チェックする）
-      if (raw.length > 20 || /[\s;&|<>`$"'=]/.test(raw)) {
+      if (raw.length > 20 || /[\s;&|<>`$"'=,]/.test(raw)) {
         return NextResponse.json({ ok: false, error: '対象の名前が正しくありません' }, { status: 400 });
       }
-      only = raw;
+      only = [raw];
+    } else if (def.params) {
+      if (def.params.only) {
+        const want = asList((b as { only?: unknown }).only).map((x) => x.trim()).filter(Boolean);
+        if (want.length > 40) {
+          return NextResponse.json({ ok: false, error: '選べる人数が多すぎます' }, { status: 400 });
+        }
+        if (want.length) {
+          /* ★在籍名簿に「完全一致」する名前だけ通す。部分一致や正規化で
+             寄せると、名簿に無い文字列が素通りする穴になる。 */
+          const roster = new Set((await getCasts()).map((c) => c.name));
+          const bad = want.filter((n) => !roster.has(n));
+          if (bad.length) {
+            return NextResponse.json(
+              { ok: false, error: `在籍にない名前が含まれています：${bad.slice(0, 3).join('・')}` },
+              { status: 400 },
+            );
+          }
+          only = [...new Set(want)];
+        }
+      }
+      if (def.params.sites?.length) {
+        const allowed = new Set<string>(def.params.sites);
+        const want = asList((b as { site?: unknown }).site).map((x) => x.trim()).filter(Boolean);
+        if (want.some((k) => !allowed.has(k))) {
+          return NextResponse.json({ ok: false, error: '対象の媒体が正しくありません' }, { status: 400 });
+        }
+        // 全部選ばれている＝絞らないのと同じ。--site= を付けない（スクリプトの既定に任せる）
+        if (want.length && want.length < allowed.size) sites = [...new Set(want)];
+      }
     }
 
-    map[id] = { ...s, id, status: 'queued', queuedAt: now, only };
+    map[id] = { ...s, id, status: 'queued', queuedAt: now, only, sites };
     if (!(await writeAll(map))) {
       return NextResponse.json({ ok: false, error: 'DBに接続できません' }, { status: 500 });
     }
@@ -166,7 +216,12 @@ export async function POST(req: Request) {
         id: take.id,
         script: def?.script ?? '',
         name: def?.name ?? take.id,
-        args: take.only ? [`--only=${take.only}`] : [],
+        /* ★複数対応。runner.js の safeArgs も カンマ区切りを通す形にしてある。
+           空の時は付けない＝スクリプト既定の「全員×全媒体」になる。 */
+        args: [
+          ...(asList(take.only).length ? [`--only=${asList(take.only).join(',')}`] : []),
+          ...(asList(take.sites).length ? [`--site=${asList(take.sites).join(',')}`] : []),
+        ],
         confirm: Boolean(def?.confirm),
         /* ★持ち時間はサーバーが渡す。runner側に数字を持たせると
            jobs.config を直しても店のPCが古い値のままになる。 */
@@ -184,6 +239,17 @@ export async function POST(req: Request) {
     s.lastRunAt = now;
     s.lastOk = Boolean((b as { ok?: unknown }).ok);
     s.lastMessage = String((b as { message?: unknown }).message ?? '').slice(0, 300);
+    /* ★何を対象に走ったかを結果と一緒に残す。これが無いと
+       「1人だけ選んで押した」のか「全員に流した」のかが後から分からない。 */
+    const names = asList(s.only);
+    const sk = asList(s.sites);
+    s.lastTarget = [
+      names.length ? `${names.join('・')} だけ` : '',
+      sk.length ? `${sk.map((k) => SITE_LABEL[k] ?? k).join('・')} だけ` : '',
+    ].filter(Boolean).join(' ／ ');
+    // 選択は1回きり。消しておかないと次に押した時も同じ絞り込みが残る
+    s.only = undefined;
+    s.sites = undefined;
     await writeAll(map);
     return NextResponse.json({ ok: true });
   }
