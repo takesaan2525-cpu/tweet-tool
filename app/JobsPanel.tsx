@@ -18,6 +18,7 @@ type Job = {
   id: string; name: string; desc: string; kind: 'attend' | 'boost' | 'post' | 'cast';
   danger?: boolean;
   params: JobParams;
+  primary: boolean;
   status: 'idle' | 'queued' | 'running';
   lastRunAt: number | null; lastOk: boolean | null; lastMessage: string;
   lastTarget: string;
@@ -118,6 +119,8 @@ export default function JobsPanel() {
   /** ジョブidごとの絞り込み。開いているジョブのidを openSel に入れる */
   const [sel, setSel] = useState<Record<string, Sel>>({});
   const [openSel, setOpenSel] = useState<string | null>(null);
+  /** 「詳しい操作」を開いているか（既定は閉じる） */
+  const [showAll, setShowAll] = useState(false);
   const selOf = (id: string) => sel[id] ?? EMPTY_SEL;
 
   async function load() {
@@ -202,6 +205,15 @@ export default function JobsPanel() {
     load();
   }
 
+  /* ★2026-08-09：ボタンが17個並んで「どれを押せばいいか分からない」状態だったので、
+     ふだん押す3つ（jobs.config の primary）だけ表に出し、残りは畳む。
+     消したわけではないので、開けば全部ある。 */
+  const primaryJobs = jobs.filter((j) => j.primary);
+  const otherJobs = jobs.filter((j) => !j.primary);
+  /* 畳んだ側で何か動いている／直近に失敗した時は勝手に開く。
+     閉じたまま失敗しているのがいちばん気づけない。 */
+  const otherNeedsAttention = otherJobs.some((j) => j.status !== 'idle' || j.lastOk === false);
+
   return (
     <>
       <div className="space-y-3">
@@ -222,7 +234,42 @@ export default function JobsPanel() {
           </div>
         )}
 
-        {jobs.map((j) => {
+        {primaryJobs.map(renderJob)}
+
+        {/* ── 詳しい操作（ふだん押さないもの）────────────────
+            上位表示・投稿・確認系・並び順はここに畳む。件数を出して
+            「隠された」のではなく「畳んである」と分かるようにする。 */}
+        {otherJobs.length > 0 && (
+          <div className="pt-1">
+            <button
+              onClick={() => setShowAll(!showAll)}
+              className="w-full text-left text-xs font-bold text-zinc-400 bg-zinc-900/60 border border-zinc-800 rounded-xl px-4 py-3 active:scale-[0.99] transition"
+            >
+              {showAll || otherNeedsAttention ? '▾' : '▸'} 詳しい操作（{otherJobs.length}件）
+              <span className="text-zinc-600 font-normal ml-2">
+                上位表示・投稿・並び順・確認
+              </span>
+              {otherNeedsAttention && !showAll && (
+                <span className="text-amber-400 ml-2">※動いているものがあります</span>
+              )}
+            </button>
+          </div>
+        )}
+        {(showAll || otherNeedsAttention) && otherJobs.map(renderJob)}
+      </div>
+
+      {toast && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 max-w-[92vw]">
+          <div className="bg-zinc-800 border border-zinc-700 text-white text-xs font-bold rounded-xl px-4 py-3 shadow-lg">
+            {toast}
+          </div>
+        </div>
+      )}
+    </>
+  );
+
+  /** ジョブ1件のカード（表に出す3つと、畳んだ側の両方から使う） */
+  function renderJob(j: Job) {
           const running = j.status !== 'idle';
           const cs = countsOf(j.id);
           const out = isOut(j.id);
@@ -335,16 +382,5 @@ export default function JobsPanel() {
               </div>
             </div>
           );
-        })}
-      </div>
-
-      {toast && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 max-w-[92vw]">
-          <div className="bg-zinc-800 border border-zinc-700 text-white text-xs font-bold rounded-xl px-4 py-3 shadow-lg">
-            {toast}
-          </div>
-        </div>
-      )}
-    </>
-  );
+  }
 }

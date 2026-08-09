@@ -105,6 +105,8 @@ export async function GET() {
       /* 画面が「子と媒体の選択欄」を出すかどうかの判断材料。
          選べる媒体はジョブごとに違う（スクリプトが対応している媒体だけ）。 */
       params: j.params ?? null,
+      /** 画面のいちばん上に出すか（残りは「詳しい操作」に畳む） */
+      primary: Boolean(j.primary),
       status: s.status,
       /** 前回どの範囲で走ったか（「1人だけ直したのに全員に見える」を防ぐ表示用） */
       lastTarget: s.lastTarget ?? '',
