@@ -3,6 +3,9 @@
 import { useEffect, useState } from 'react';
 import { COURSE_MENU, courseLabel, type Cast } from '../api/line-webhook/casts';
 import { SHOP, FEES } from '../shop.config';
+/* ★出勤時間はここで決めない。HPの出勤表を正とする共通の関数を使う。
+   お客様に見せる時間なので、ズレる可能性のある cast.hours を直接出さない。 */
+import { todayHours } from '../castHours';
 
 const STORE = SHOP.name;
 
@@ -157,7 +160,7 @@ export default function ReservePage() {
                       <div className="text-[11px] text-zinc-300 mt-0.5">{c.height}cm・{c.cup}カップ</div>
                       <div className="text-[11px] text-zinc-400">{c.type}</div>
                       <div className={`text-[11px] mt-0.5 ${c.today ? 'text-emerald-300' : 'text-amber-300'}`}>
-                        {c.today ? `🟢 本日 ${c.hours}` : '本日お休み'}
+                        {c.today ? `🟢 本日 ${todayHours(c)}` : '本日お休み'}
                       </div>
                     </div>
                   </div>

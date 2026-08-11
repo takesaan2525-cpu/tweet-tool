@@ -2,6 +2,8 @@ import { Redis } from '@upstash/redis';
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { castInfo, COURSES, COURSE_MENU } from './casts';
+import { getCasts } from '../casts/route';
+import { todayHours } from '../../castHours';
 import { SHOP } from '../../shop.config';
 
 const redis = new Redis({
@@ -96,11 +98,14 @@ function keywordReply(text: string): string {
 type LineUser = { userId: string; name: string; at: string };
 type Turn = { role: 'user' | 'assistant'; content: string };
 
-const SYSTEM = `あなたはメンズエステ店「${SHOP.nameLong}」の予約受付AIアシスタントです。
+/* ★2026-08-12：在籍キャストを毎回その場で読むようにしたので、
+   SYSTEM は定数ではなく関数にした（定数のままだと起動時の1回で固定され、
+   お客様に古い在籍・古い出勤時間を案内してしまう）。 */
+const buildSystem = (casts: string) => `あなたはメンズエステ店「${SHOP.nameLong}」の予約受付AIアシスタントです。
 LINEでお客様からの問い合わせ・予約を受け付けます。
 
 # 在籍キャスト
-${castInfo()}
+${casts}
 
 # コース料金
 ${COURSES.join(' / ')}
@@ -158,12 +163,22 @@ async function aiReply(userId: string, text: string): Promise<string> {
   const history = (await redis.get<Turn[]>(histKey)) ?? [];
   const messages = [...history, { role: 'user' as const, content: text }];
 
+  /* ★在籍と出勤時間は毎回その場で読む（お客様に案内する内容なので古くしない）。
+     読めなかったときはコードの初期データに落ちる＝返事はできるが内容は古い。
+     ★出勤時間は予約ページと同じ todayHours（HPの出勤表が正）で出す。 */
+  let castLines: string;
+  try {
+    castLines = castInfo(await getCasts(), (c) => todayHours(c));
+  } catch {
+    castLines = castInfo();
+  }
+
   let answer = 'ありがとうございます！担当者から折り返しご連絡しますね😊';
   try {
     const res = await anthropic.messages.create({
       model: 'claude-haiku-4-5',
       max_tokens: 500,
-      system: SYSTEM,
+      system: buildSystem(castLines),
       messages,
     });
     answer = res.content.find((b) => b.type === 'text')?.text ?? answer;

@@ -33,8 +33,19 @@ export const CASTS: Cast[] = [
 // コース料金は店舗マスタ(shop.config)に集約。ここからは再エクスポート（既存importを維持）。
 export { COURSE_MENU, COURSES, courseLabel } from '../../shop.config';
 
-export function castInfo(): string {
-  return CASTS.map((c) =>
-    `・${c.name}（${c.age}歳/${c.height}cm/${c.cup}カップ/${c.type}）${c.today ? `本日出勤 ${c.hours}` : '本日お休み'}`
-  ).join('\n');
+/* LINEの予約受付AIに渡す在籍一覧。
+   🔴★2026-08-12：ここは長いあいだ**コードに書いた初期データ(CASTS)**を返していた。
+     ＝LINEのAIはお客様に「ミルク」など今は居ない子を含む6名を案内し、
+       出勤時間も古いままだった（実際の在籍は24名）。
+     ＝お客様に見せる情報なので、必ず生きた名簿(/api/casts の getCasts)を読む。
+   ★出勤時間は castHours の todayHours を使う＝予約ページと同じ出し方にする
+     （HPの出勤表が正。cast.hours を直接出さない）。
+   ★引数で受けるのは、この層から /api/casts/route を import すると
+     循環参照になるため。呼ぶ側（route.ts）が読んで渡す。 */
+export function castInfo(list: Cast[] = CASTS, hoursOf: (c: Cast) => string = (c) => c.hours): string {
+  return list.map((c) => {
+    const size = [c.age && `${c.age}歳`, c.height && `${c.height}cm`, c.cup && `${c.cup}カップ`, c.type]
+      .filter(Boolean).join('/');
+    return `・${c.name}（${size}）${c.today ? `本日出勤 ${hoursOf(c) || '時間未定'}` : '本日お休み'}`;
+  }).join('\n');
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import type { Cast } from './api/line-webhook/casts';
+import { todayHours } from './castHours';
 
 /* ───────────────────────────────────────────────
    在籍キャストの管理パーツ（選ぶ → その子の画面）
@@ -295,10 +296,12 @@ export default function StaffPanel() {
             className={`px-4 py-2.5 rounded-xl text-sm font-bold transition disabled:opacity-50 ${cur.today ? 'bg-emerald-600' : 'bg-zinc-700 text-zinc-300'}`}>
             {cur.today ? '本日出勤' : 'お休み'}
           </button>
-          <span className="text-xs text-zinc-400">{cur.hours || '時間は未設定'}</span>
+          {/* ★お客様の予約ページと同じ関数で出す。別々に出すと、
+              店の画面とお客様の画面で違う時間が見えることになる。 */}
+          <span className="text-xs text-zinc-400">{todayHours(cur) || '時間は未設定'}</span>
         </div>
         <p className="text-[11px] text-zinc-600 mt-2">
-          ここを「本日出勤」にした子だけ、お客様の予約画面に並びます。
+          ここを「本日出勤」にした子だけ、お客様の予約画面に並びます。時間はHPの出勤表が正です。
         </p>
       </Box>
 
@@ -350,7 +353,10 @@ export default function StaffPanel() {
         ) : (
           <div className="space-y-2">
             <Line label="タイプ" v={cur.type} />
-            <Line label="出勤時間" v={cur.hours} />
+            {/* ★「本日の出勤」に出している時間とは別物。あちらはHPの出勤表から
+                来た今日の時間、こちらは名簿に登録してある既定の時間。
+                同じ「出勤時間」と書くと、違う値が2か所に出て混乱する。 */}
+            <Line label="既定の時間" v={cur.hours} />
             <Line label="紹介文" v={cur.comment} />
             <button onClick={() => { setForm({ ...cur }); setEditing(true); }}
               className="w-full mt-2 py-2.5 rounded-xl bg-zinc-800 text-sm font-bold">✏️ プロフィールを直す</button>

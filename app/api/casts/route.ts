@@ -191,6 +191,24 @@ export async function POST(req: Request) {
         }
         c.schedule = sc;
       }
+
+      /* ★★出勤時間の正はHPの出勤表。ここで当日ぶんを必ず揃える（2026-08-12）。
+         working（当日）と days（週間）は同じHPのページから来ているのに、
+         実際に食い違っている子がいた（みう：hours=16:00〜翌05:00 なのに
+         schedule['2026-08-12']=18:00〜翌05:00）。
+         ★これは**お客様の予約ページに出る時間**なので、ズレたまま出してはいけない。
+           上のループは hit が空文字だと hours を更新しない作りで、そこで
+           古い値が残りうる。週間ぶんが読めているなら、そちらを正として上書きする。
+         ★「今日」は days の中でいちばん古い日付＝HPの day=0（店の営業日）。
+           サーバーの時計から今日を計算すると、深夜営業で日付が変わったあとに
+           店の「今日」とズレる。送られてきた日付をそのまま使う。 */
+      const todayKey = days.map((d) => String(d.date)).sort()[0];
+      if (todayKey) {
+        for (const c of list) {
+          const v = c.schedule?.[todayKey];
+          if (v) c.hours = v;
+        }
+      }
     }
 
     try { await save(list); } catch { return NextResponse.json({ ok: false, error: 'DBに接続できません' }, { status: 500 }); }
