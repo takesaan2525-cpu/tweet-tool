@@ -4,6 +4,12 @@ export type Cast = {
   id?: string; // 安定した内部ID（名前変更しても追跡できる）。DB管理で付与。
   name: string; age: number; height: number; cup: string;
   type: string; comment: string; hours: string; photo: string; today: boolean;
+  /* サブ写真。photo（メイン）に続く2枚目以降を駅ちかから取り込んで持つ。
+     ★2026-08-11 追加。駅ちかは1人あたり最大8枚もてるのに、うちは1枚しか
+       使っておらず、媒体に配れるのも1枚だけだった。
+     ★photo とは別に持つ理由＝既存の画面・botは全部 photo を見ているので、
+       そこの意味を変えずに増やす（photos[0] は photo と同じものが入る）。 */
+  photos?: string[];
   // 週間出勤。キー='YYYY-MM-DD'、値='20:00〜翌2:00'（時間が読めない日は空文字）。
   // キーが有る日＝出勤、無い日＝休み。today/hours は当日ぶんの後方互換として残す
   // （7媒体の出勤botとStaffPanelが today を見ているため、こちらは消さない）。

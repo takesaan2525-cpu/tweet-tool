@@ -48,7 +48,7 @@ async function save(list: Cast[]) {
 }
 
 // ローカルのスクレイパーから送られてくる在籍データの型
-type Scraped = { name: string; age: number; height: number; cup: string; photo: string };
+type Scraped = { name: string; age: number; height: number; cup: string; photo: string; photos?: string[] };
 // 取り込みAPIの認証（環境変数 IMPORT_SECRET と一致が必要）。未設定なら取り込み自体を拒否。
 const IMPORT_SECRET = process.env.IMPORT_SECRET ?? '';
 // 管理操作（追加/編集/削除/LINE紐付け）は /gate で発行されるCookieが必要
@@ -77,12 +77,22 @@ function sanitize(b: Record<string, unknown>, base?: Cast): Cast {
     comment: s(b.comment, base?.comment ?? ''),
     hours: s(b.hours, base?.hours ?? ''),
     photo: s(b.photo, base?.photo ?? ''),
+    /* サブ写真。編集フォームからは送られてこないので base から引き継ぐ
+       （schedule と同じ理由＝作り直し関数なので引き継がないと消える）。 */
+    photos: isPhotos(b.photos) ? b.photos : base?.photos,
     today: typeof b.today === 'boolean' ? b.today : (base?.today ?? false),
     // ★週間出勤は編集フォームから送られてこない。ここで base から引き継がないと
     //   /staff でプロフィールを1文字直しただけで週間出勤が消える（作り直し関数のため）。
     schedule: isSchedule(b.schedule) ? b.schedule : base?.schedule,
     lineUserId: s(b.lineUserId, base?.lineUserId ?? ''),
   };
+}
+
+/* photos が「URLの配列」の形かを確かめる（壊れた値を保存しない）。
+   ★枚数の上限を決めておく＝駅ちかは最大8枚。想定外に長い配列でDBを膨らませない。 */
+function isPhotos(v: unknown): v is string[] {
+  return Array.isArray(v) && v.length <= 12
+    && v.every((x) => typeof x === 'string' && /^https?:\/\//.test(x));
 }
 
 // schedule が {'YYYY-MM-DD': '時間'} の形かを確かめる（壊れた値を保存しない）
@@ -118,6 +128,8 @@ export async function POST(req: Request) {
         // 既存：写真・年齢・身長・カップだけ最新化。出勤/LINE/タイプ/時間は維持
         ex.age = s.age; ex.height = s.height; ex.cup = s.cup;
         if (s.photo) ex.photo = s.photo;
+        // サブ写真（駅ちかの2枚目以降）。送られてきた時だけ入れ替える。
+        if (isPhotos(s.photos)) ex.photos = s.photos;
         updated++;
       } else {
         list.push({ id: newId(), name: s.name, age: s.age, height: s.height, cup: s.cup, type: '', comment: '', hours: '', photo: s.photo, today: false, lineUserId: '' });
