@@ -242,9 +242,17 @@ export default function JobsPanel() {
   const otherJobs = jobs.filter((j) => !j.primary && !j.fallback);
   const fallbackJobs = jobs.filter((j) => !j.primary && j.fallback);
   /* 畳んだ側で何か動いている／直近に失敗した時は勝手に開く。
-     閉じたまま失敗しているのがいちばん気づけない。 */
-  const otherNeedsAttention = otherJobs.some((j) => j.status !== 'idle' || j.lastOk === false);
-  const fallbackNeedsAttention = fallbackJobs.some((j) => j.status !== 'idle' || j.lastOk === false);
+     閉じたまま失敗しているのがいちばん気づけない。
+     ★2026-08-12：「直近」を24時間以内に限定した。それまでは期限なしだったので、
+       8/9の失敗が残っているだけで「うまくいかない時」が永久に開きっぱなしになり、
+       畳んだ意味がなくなっていた（実際にそうなっていた）。
+       古い失敗は放っておくのではなく、開けば見えるところに残っている。 */
+  const RECENT_MS = 24 * 60 * 60 * 1000;
+  const needsAttention = (list: Job[]) => list.some((j) =>
+    j.status !== 'idle'
+    || (j.lastOk === false && j.lastRunAt !== null && Date.now() - j.lastRunAt < RECENT_MS));
+  const otherNeedsAttention = needsAttention(otherJobs);
+  const fallbackNeedsAttention = needsAttention(fallbackJobs);
 
   return (
     <>
