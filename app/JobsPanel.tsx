@@ -19,6 +19,10 @@ type Job = {
   danger?: boolean;
   params: JobParams;
   primary: boolean;
+  /** 見るだけ（媒体を変えない） */
+  readOnly?: boolean;
+  /** ふだんは見せない（まとめボタンの部品・うまくいかない時の逃げ道） */
+  fallback?: boolean;
   status: 'idle' | 'queued' | 'running';
   lastRunAt: number | null; lastOk: boolean | null; lastMessage: string;
   lastTarget: string;
@@ -43,6 +47,18 @@ type Counter = {
 };
 
 const KIND_LABEL: Record<Job['kind'], string> = { attend: '出勤', boost: '上位表示', post: '投稿', cast: 'キャスト' };
+
+/* 「詳しい操作」を開いたときの並べ方（2026-08-12）。
+   ★以前は14件が同じ見た目でひと続きに並んでいて、
+     「回数を使うもの」「文章が公開されるもの」「見るだけのもの」が
+     混ざっていた＝押す前に危なさが分からなかった。
+   種類ごとに小見出しを付けて、危ないものほど下に置く。 */
+const GROUPS: { kind: Job['kind']; title: string; hint: string }[] = [
+  { kind: 'cast',   title: 'キャスト',   hint: '登録・写真・プロフ・並び順' },
+  { kind: 'attend', title: '出勤',       hint: 'HPの出勤表を読む' },
+  { kind: 'boost',  title: '上位表示',   hint: '★1日の残り回数を消費します' },
+  { kind: 'post',   title: '投稿',       hint: '★お客様に見える文章が出ます' },
+];
 const KIND_STYLE: Record<Job['kind'], string> = {
   attend: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
   boost: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
@@ -50,9 +66,12 @@ const KIND_STYLE: Record<Job['kind'], string> = {
   cast: 'bg-violet-500/15 text-violet-300 border-violet-500/30',
 };
 
-/** ボタン横に出す「いまの絞り込み」の一言 */
-function scopeLabel(s: Sel): string {
+/** ボタン横に出す「いまの絞り込み」の一言。
+    ★媒体を選べないジョブ（＝工程ごとに対応媒体が違うもの）に「全媒体」と
+      出すと、選べるのに選んでいないように見える。その時は人数だけ出す。 */
+function scopeLabel(s: Sel, canPickSites: boolean): string {
   const a = s.only.length ? `${s.only.length}名` : '全員';
+  if (!canPickSites) return `（${a}）`;
   const b = s.sites.length ? `${s.sites.map((k) => SITE_LABEL[k] ?? k).join('・')}` : '全媒体';
   return `（${a}／${b}）`;
 }
@@ -121,6 +140,8 @@ export default function JobsPanel() {
   const [openSel, setOpenSel] = useState<string | null>(null);
   /** 「詳しい操作」を開いているか（既定は閉じる） */
   const [showAll, setShowAll] = useState(false);
+  /** 「うまくいかない時」を開いているか（既定は閉じる） */
+  const [showFallback, setShowFallback] = useState(false);
   const selOf = (id: string) => sel[id] ?? EMPTY_SEL;
 
   async function load() {
@@ -188,8 +209,11 @@ export default function JobsPanel() {
       s.only.length ? `対象：${s.only.join('・')}（${s.only.length}名）` : '対象：全員',
       s.sites.length ? `媒体：${s.sites.map((k) => SITE_LABEL[k] ?? k).join('・')}` : '媒体：すべて',
     ].join('\n');
-    // 投稿・上位化は取り消せないので、押し間違い防止に一度だけ確認する
-    if (j.kind !== 'attend' && !window.confirm(`「${j.name}」を今すぐ実行します。\n\n${j.desc}\n\n${scope}\n\nよろしいですか？`)) return;
+    /* 投稿・上位化は取り消せないので、押し間違い防止に一度だけ確認する。
+       ★見るだけのもの（登録状況の確認・並び順の確認）は聞かない。
+         何も変えないのに確認を出すと、確認そのものが読まれなくなる。 */
+    if (!j.readOnly && j.kind !== 'attend'
+      && !window.confirm(`「${j.name}」を今すぐ実行します。\n\n${j.desc}\n\n${scope}\n\nよろしいですか？`)) return;
     setJobs((prev) => prev.map((x) => (x.id === j.id ? { ...x, status: 'queued', canRun: false } : x)));
     try {
       const r = await fetch('/api/jobs', {
@@ -209,10 +233,18 @@ export default function JobsPanel() {
      ふだん押す3つ（jobs.config の primary）だけ表に出し、残りは畳む。
      消したわけではないので、開けば全部ある。 */
   const primaryJobs = jobs.filter((j) => j.primary);
-  const otherJobs = jobs.filter((j) => !j.primary);
+  /* ★2026-08-12：3段にした。
+       表 … ふだん押す（primary）
+       詳しい操作 … 上位表示・投稿・確認など、たまに押すもの
+       うまくいかない時 … 「駅ちかに合わせる」に入っている工程の部品。
+         中村さんに「写真のやつが2個ある」「エステラブって何？」と
+         言わせた原因。消さずに、ここまで下げる。 */
+  const otherJobs = jobs.filter((j) => !j.primary && !j.fallback);
+  const fallbackJobs = jobs.filter((j) => !j.primary && j.fallback);
   /* 畳んだ側で何か動いている／直近に失敗した時は勝手に開く。
      閉じたまま失敗しているのがいちばん気づけない。 */
   const otherNeedsAttention = otherJobs.some((j) => j.status !== 'idle' || j.lastOk === false);
+  const fallbackNeedsAttention = fallbackJobs.some((j) => j.status !== 'idle' || j.lastOk === false);
 
   return (
     <>
@@ -234,7 +266,9 @@ export default function JobsPanel() {
           </div>
         )}
 
-        {primaryJobs.map(renderJob)}
+        {/* ★ map(renderJob) と書かない：mapは第2引数にindex(number)を渡すので
+            showKind に 0/1 が入ってしまう（先頭のカードだけバッジが消える）。 */}
+        {primaryJobs.map((j) => renderJob(j, true))}
 
         {/* ── 詳しい操作（ふだん押さないもの）────────────────
             上位表示・投稿・確認系・並び順はここに畳む。件数を出して
@@ -255,7 +289,50 @@ export default function JobsPanel() {
             </button>
           </div>
         )}
-        {(showAll || otherNeedsAttention) && otherJobs.map(renderJob)}
+        {/* ★種類ごとに小見出しを付けて出す。ひと続きの14件だと
+            「回数を使うもの」と「見るだけ」が同じ顔で並んでしまう。 */}
+        {(showAll || otherNeedsAttention) && GROUPS.map((g) => {
+          const list = otherJobs.filter((j) => j.kind === g.kind);
+          if (!list.length) return null;
+          return (
+            <div key={g.kind} className="space-y-3">
+              <div className="flex items-baseline gap-2 px-1 pt-2">
+                <span className="text-xs font-bold text-zinc-300">{g.title}</span>
+                <span className="text-[10px] text-zinc-600">{g.hint}</span>
+              </div>
+              {list.map((j) => renderJob(j, false))}
+            </div>
+          );
+        })}
+
+        {/* ── うまくいかない時（まとめボタンの部品）────────────
+            「駅ちかに合わせる」が全部やるので、ふだんは要らない。
+            一部だけ失敗した時に、そこだけやり直すための逃げ道として残す。 */}
+        {fallbackJobs.length > 0 && (
+          <div className="pt-1">
+            <button
+              onClick={() => setShowFallback(!showFallback)}
+              className="w-full text-left text-xs font-bold text-zinc-500 bg-zinc-900/40 border border-zinc-800/80 rounded-xl px-4 py-3 active:scale-[0.99] transition"
+            >
+              {showFallback || fallbackNeedsAttention ? '▾' : '▸'} うまくいかない時（{fallbackJobs.length}件）
+              <span className="text-zinc-600 font-normal ml-2">
+                写真だけ・プロフだけ・エステラブだけ、など個別にやり直す
+              </span>
+              {fallbackNeedsAttention && !showFallback && (
+                <span className="text-amber-400 ml-2">※動いているものがあります</span>
+              )}
+            </button>
+          </div>
+        )}
+        {(showFallback || fallbackNeedsAttention) && (
+          <>
+            <p className="text-[11px] text-zinc-600 px-1 leading-relaxed">
+              ふだんは「駅ちかに合わせる」だけで足ります。ここは、そのうち一部だけ
+              失敗した時に、その工程だけやり直すためのものです。
+            </p>
+            {fallbackJobs.map((j) => renderJob(j, false))}
+          </>
+        )}
       </div>
 
       {toast && (
@@ -268,8 +345,11 @@ export default function JobsPanel() {
     </>
   );
 
-  /** ジョブ1件のカード（表に出す3つと、畳んだ側の両方から使う） */
-  function renderJob(j: Job) {
+  /** ジョブ1件のカード（表に出すものと、畳んだ側の両方から使う）
+      showKind＝種類バッジを出すか。畳んだ側は種類ごとの小見出しの下に並ぶので、
+      同じ語がすぐ上と重なる（「キャスト」の見出しの下に「キャスト」バッジ）。
+      そこでは出さない。 */
+  function renderJob(j: Job, showKind = true) {
           const running = j.status !== 'idle';
           const cs = countsOf(j.id);
           const out = isOut(j.id);
@@ -279,10 +359,18 @@ export default function JobsPanel() {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className={`text-[10px] font-bold border rounded-full px-2 py-0.5 ${KIND_STYLE[j.kind]}`}>
-                      {KIND_LABEL[j.kind]}
-                    </span>
+                    {showKind && (
+                      <span className={`text-[10px] font-bold border rounded-full px-2 py-0.5 ${KIND_STYLE[j.kind]}`}>
+                        {KIND_LABEL[j.kind]}
+                      </span>
+                    )}
                     <span className="font-bold">{j.name}</span>
+                    {/* 「押しても何も変わらない」ものは、押す前にそう分かるようにする */}
+                    {j.readOnly && (
+                      <span className="text-[10px] font-bold border rounded-full px-2 py-0.5 bg-emerald-500/15 text-emerald-300 border-emerald-500/30">
+                        見るだけ
+                      </span>
+                    )}
                   </div>
                   <div className="text-[11px] text-zinc-500 mt-1 leading-relaxed">{j.desc}</div>
 
@@ -296,7 +384,9 @@ export default function JobsPanel() {
                         className="text-[11px] font-bold text-sky-400 active:opacity-70"
                       >
                         {openSel === j.id ? '▾ 対象をえらぶ' : '▸ 対象をえらぶ'}
-                        <span className="text-zinc-500 font-normal ml-1">{scopeLabel(selOf(j.id))}</span>
+                        <span className="text-zinc-500 font-normal ml-1">
+                          {scopeLabel(selOf(j.id), Boolean(j.params?.sites?.length))}
+                        </span>
                       </button>
 
                       {openSel === j.id && (

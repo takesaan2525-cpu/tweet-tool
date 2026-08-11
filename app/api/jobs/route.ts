@@ -107,6 +107,10 @@ export async function GET() {
       params: j.params ?? null,
       /** 画面のいちばん上に出すか（残りは「詳しい操作」に畳む） */
       primary: Boolean(j.primary),
+      /** 見るだけ（媒体を変えない）＝画面に緑の印を出して安心して押せるようにする */
+      readOnly: Boolean(j.readOnly),
+      /** ふだんは見せない（まとめボタンに入っている工程の部品・逃げ道） */
+      fallback: Boolean(j.fallback),
       status: s.status,
       /** 前回どの範囲で走ったか（「1人だけ直したのに全員に見える」を防ぐ表示用） */
       lastTarget: s.lastTarget ?? '',
@@ -227,11 +231,18 @@ export async function POST(req: Request) {
         script: def?.script ?? '',
         name: def?.name ?? take.id,
         /* ★複数対応。runner.js の safeArgs も カンマ区切りを通す形にしてある。
-           空の時は付けない＝スクリプト既定の「全員×全媒体」になる。 */
+           空の時は付けない＝スクリプト既定の「全員×全媒体」になる。
+           ★def.args＝ジョブ定義に固定で書いてある引数（例 deki_import の --refresh）。
+             画面から来る only/sites より先に置く。 */
         args: [
+          ...(Array.isArray(def?.args) ? def.args : []),
           ...(asList(take.only).length ? [`--only=${asList(take.only).join(',')}`] : []),
           ...(asList(take.sites).length ? [`--site=${asList(take.sites).join(',')}`] : []),
         ],
+        /* ★そのジョブ固有の環境変数（例：写真の差し替え REPLACE=1）。
+           jobs.config に書いたものだけ。画面からは指定できない。
+           runner.js 側でもキー・値を許可リストで縛っている（二重の歯止め）。 */
+        env: def?.env ?? {},
         confirm: Boolean(def?.confirm),
         /* ★持ち時間はサーバーが渡す。runner側に数字を持たせると
            jobs.config を直しても店のPCが古い値のままになる。 */

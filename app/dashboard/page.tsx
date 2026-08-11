@@ -8,8 +8,17 @@ import StaffPanel from '../StaffPanel';
 import Collapsible from '../Collapsible';
 
 /* ───────────────────────────────────────────────
-   派遣型メンエス 管理システム ─ 試作（デモ）
-   ※データはすべてサンプルです
+   派遣型メンエス 管理システム（Zero梅田・本番）
+
+   ★2026-08-12：先頭に「試作（デモ）※データはすべてサンプルです」と
+     書いたままだったので直した。実際にはネット予約・キャスト名簿・
+     掲載サイトのON/OFFはすべて本番データを触っている。
+
+   🔴ただし「予約」タブの登録フォーム（tab==='resv'）だけは今も本物ではない。
+     addResv() は画面の中の変数に足すだけで、保存もLINE通知もSMS送信も
+     していないのに「送信しました」とトーストを出す。試作のときの名残。
+     ＝ここを本物にするか消すかは保留中（2026-08-12 時点）。
+     本物なのは /api/reservations から読む「ネット予約」のほう。
 ─────────────────────────────────────────────── */
 
 const STORE = SHOP.name;
@@ -119,12 +128,6 @@ export default function SystemPage() {
     setTab('dash');
   }
 
-  function cycleCast(id: string) {
-    const order: Cast['status'][] = ['出勤前', '待機', '接客中', '退勤'];
-    setCasts((prev) => prev.map((c) => c.id === id
-      ? { ...c, status: order[(order.indexOf(c.status) + 1) % order.length] } : c));
-  }
-
   async function toggleAuto(id: string) {
     const target = sites.find((s) => s.id === id);
     if (!target) return;
@@ -181,13 +184,6 @@ export default function SystemPage() {
   const pausedMin = (s: Site) =>
     s.pauseUntil ? Math.max(0, Math.ceil((s.pauseUntil - Date.now()) / 60000)) : 0;
 
-  const statusColor: Record<Cast['status'], string> = {
-    '待機': 'bg-emerald-500/20 text-emerald-300',
-    '接客中': 'bg-pink-500/20 text-pink-300',
-    '出勤前': 'bg-blue-500/20 text-blue-300',
-    '退勤': 'bg-zinc-600/30 text-zinc-400',
-  };
-
   return (
     <div className="min-h-screen bg-zinc-950 text-white pb-24">
       {/* ヘッダー */}
@@ -198,14 +194,14 @@ export default function SystemPage() {
             <div className="text-[11px] text-zinc-500">予約・キャスト・掲載・給与 統合管理</div>
           </div>
           {/* 別ページへの導線。給与タブなど「掲載更新」以外を見ているときも
-              押せるように、タブの中ではなくヘッダーに置く。 */}
+              押せるように、タブの中ではなくヘッダーに置く。
+              ★2026-08-12：「⏱投稿時刻」をここから外した。掲載更新タブの中に
+                同じ TimesEditor があり、入口が2つに見えていたため
+                （中身は同じ設定なので、どちらで直しても結果は同じだった）。
+                単独ページ /times は残してあるので、直リンクでは今までどおり開ける。 */}
           <div className="text-right shrink-0">
             <div className="text-xs text-zinc-400">{new Date().toLocaleDateString('ja-JP', { month: 'long', day: 'numeric', weekday: 'short' })}</div>
             <div className="flex items-center justify-end gap-1.5 mt-1">
-              <a href="/times"
-                className="text-[10px] font-bold text-blue-300 bg-blue-500/10 border border-blue-500/30 rounded-full px-2 py-1 active:scale-95 transition">
-                ⏱ 投稿時刻
-              </a>
               <a href="/photos"
                 className="text-[10px] font-bold text-pink-300 bg-pink-500/10 border border-pink-500/30 rounded-full px-2 py-1 active:scale-95 transition">
                 🖼 新着の写真
@@ -368,32 +364,19 @@ export default function SystemPage() {
 
         {tab === 'cast' && (
           <section>
-            <H title="キャスト管理" sub="タップでステータス切替（出勤前→待機→接客中→退勤）" />
+            <H title="キャスト管理" sub="写真をタップすると、その子のプロフィール・出勤・LINEを直せます" />
 
-            {/* 在籍そのものの追加・編集・卒業を、このタブの中でそのままできるようにする（2026-08-01）。
-                中身は /staff と同じ部品。★このページは鍵つき（middlewareのmatcher）なので
-                取り消せない「卒業」を置いてよい。公開の /status には絶対に置かない。 */}
-            <div className="mb-4">
-              <Collapsible
-                title="在籍キャストの追加・編集・卒業"
-                sub="プロフィール・写真・出勤時間の変更、LINE連携、辞めた子の削除"
-                badge={`${casts.length}名`}
-              >
-                <StaffPanel />
-              </Collapsible>
-            </div>
-            <div className="space-y-3">
-              {casts.map((c) => (
-                <button key={c.id} onClick={() => cycleCast(c.id)}
-                  className="w-full bg-zinc-900 rounded-2xl border border-zinc-800 p-4 flex items-center justify-between hover:border-zinc-600 transition">
-                  <div className="flex items-center gap-3">
-                    <span className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm" style={{ background: c.color + '33', color: c.color }}>{c.name[0]}</span>
-                    <span className="font-bold">{c.name}</span>
-                  </div>
-                  <span className={`px-3 py-1 rounded-full text-xs font-bold ${statusColor[c.status]}`}>{c.status}</span>
-                </button>
-              ))}
-            </div>
+            {/* ★2026-08-12：ここには2つのものが並んでいた。
+                ①折りたたみの中の StaffPanel（本物・保存される）
+                ②その下の「出勤前→待機→接客中→退勤」の一覧
+                ②は画面の中の変数を書き換えるだけで、どこにも保存されず
+                リロードで元に戻る飾りだった。同じ子が1画面に2回出たうえ、
+                「出勤」の意味が2種類あって（本日出勤/お休み と 待機/接客中）
+                押しても何も起きないほうが下にある、という形になっていた。
+                ＝②を外し、①を折りたたみから出して主役にした。
+                ※接客中/待機のような当日の状態管理が要るなら、
+                  保存先を作ったうえで改めて足すこと。 */}
+            <StaffPanel />
           </section>
         )}
 
