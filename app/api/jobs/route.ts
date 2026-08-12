@@ -85,7 +85,13 @@ function normalize(map: Record<string, JobState>): Record<string, JobState> {
       s.status = 'idle';
       s.lastOk = false;
       s.lastMessage = '受け付けましたが実行されませんでした（店のPCが止まっている可能性）';
-      s.lastRunAt = now;
+      /* 🔴★2026-08-12：ここで lastRunAt を今にしてはいけない。
+         クールタイムは lastRunAt から数えるので、**一度も実行されていないのに**
+         次に押せるまで数分待たされることになる。
+         実際に起きた：店のPCが3時間スリープしていた間に押したぶんが時効になり、
+         PCが復帰したあとも「あと300秒」と出て押し直せなかった。
+         ＝クールタイムは「媒体を触った回数」を抑えるためのもの。
+           何も触っていないのだから、消費させない。lastRunAt は前回のまま残す。 */
     }
   }
   return map;
