@@ -1,5 +1,8 @@
-import { Redis } from '@upstash/redis';
+// データの置き場は Supabase（app/kv.ts）。Upstashの無料枠を使い切ったため 2026-08-24 に移設。
+// 中身は get/set/del/incr/expire が同じ形なので、名前を redis のままにして呼び出し側は触っていない。
+import { kv as redis } from '../../kv';
 import { NextResponse } from 'next/server';
+import { dbWarn } from '../../dbfail';
 import { JOBS, JOB_BY_ID, timeoutSecOf, SITE_LABEL } from '../../jobs.config';
 import { getCasts } from '../casts/route';
 
@@ -15,10 +18,6 @@ import { getCasts } from '../casts/route';
      ③同じジョブは同時に1件まで、で連打・悪用のダメージを抑える。
 ─────────────────────────────────────────────── */
 
-const redis = new Redis({
-  url: (process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL)!,
-  token: (process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN)!,
-});
 
 const KEY = 'growup_jobs_v1';
 const IMPORT_SECRET = process.env.IMPORT_SECRET ?? '';
@@ -39,6 +38,13 @@ export type JobState = {
   sites?: string[];
   /** 最後の実行が「誰・どの媒体」を対象にしたか（画面に出す。空＝全員×全媒体） */
   lastTarget?: string;
+  /* ★2026-08-31：実行中の途中経過。
+     それまでは queued→running→結果 の3段しか出ておらず、10分かかる削除の間
+     画面が「実行中…」のまま黙っていた。中村さんに「削除完了してるのか
+     わからない」と言わせた原因がこれ。runnerが節目ごとに送ってくる。 */
+  progress?: string;
+  /** 途中経過を受け取った時刻(ms)。古い経過を「今の状況」として出さないため */
+  progressAt?: number;
 };
 
 /** 旧形式（文字列1個）で保存された値も配列として読む */
@@ -60,13 +66,15 @@ async function readAll(): Promise<Record<string, JobState>> {
   try {
     const v = await redis.get<Record<string, JobState>>(KEY);
     return v && typeof v === 'object' ? v : {};
-  } catch {
+  } catch (e) {
+    dbWarn('jobs.readAll', e);   // 読めないのを空っぽと区別できるようにログには残す
     return {};
   }
 }
 
 async function writeAll(map: Record<string, JobState>): Promise<boolean> {
-  try { await redis.set(KEY, JSON.stringify(map)); return true; } catch { return false; }
+  try { await redis.set(KEY, JSON.stringify(map)); return true; }
+  catch (e) { dbWarn('jobs.writeAll', e); return false; }
 }
 
 /** 保存値に「時効切れのrunningはidleに戻す」を適用して返す */
@@ -118,6 +126,11 @@ export async function GET() {
       /** ふだんは見せない（まとめボタンに入っている工程の部品・逃げ道） */
       fallback: Boolean(j.fallback),
       status: s.status,
+      /** いま何をしているか（実行中だけ）。終わったら結果の行に置き換わる */
+      progress: s.status === 'running' ? (s.progress ?? '') : '',
+      progressAt: s.status === 'running' ? (s.progressAt ?? null) : null,
+      /** いつから走っているか（画面に「3分経過」と出すため） */
+      startedAt: s.status === 'running' ? (s.startedAt ?? null) : null,
       /** 前回どの範囲で走ったか（「1人だけ直したのに全員に見える」を防ぐ表示用） */
       lastTarget: s.lastTarget ?? '',
       lastRunAt: s.lastRunAt ?? null,
@@ -229,6 +242,9 @@ export async function POST(req: Request) {
     const def = JOB_BY_ID.get(take.id);
     take.status = 'running';
     take.startedAt = now;
+    /* 前回の途中経過が残っていると、走り出した瞬間に古い行が「いまの状況」として出る */
+    take.progress = '';
+    take.progressAt = undefined;
     await writeAll(map);
     return NextResponse.json({
       ok: true,
@@ -257,7 +273,21 @@ export async function POST(req: Request) {
     });
   }
 
-  // ── ③ runnerから：結果を返す ─────────────
+  /* ── ③ runnerから：途中経過を送る（2026-08-31 追加）─────────────
+     結果(report)と違って「まだ終わっていない」ので、状態は running のまま。
+     ★実行中のものにしか書かない。runnerの送信が遅れて結果の後に届いた時に、
+       終わったジョブへ「いま○○中」と書き戻してしまうのを防ぐ。 */
+  if (action === 'progress') {
+    const id = String((b as { id?: unknown }).id ?? '');
+    const s = map[id];
+    if (!s || s.status !== 'running') return NextResponse.json({ ok: true, ignored: true });
+    s.progress = String((b as { message?: unknown }).message ?? '').slice(0, 200);
+    s.progressAt = now;
+    await writeAll(map);
+    return NextResponse.json({ ok: true });
+  }
+
+  // ── ④ runnerから：結果を返す ─────────────
   if (action === 'report') {
     const id = String((b as { id?: unknown }).id ?? '');
     const s = map[id];
@@ -277,6 +307,9 @@ export async function POST(req: Request) {
     // 選択は1回きり。消しておかないと次に押した時も同じ絞り込みが残る
     s.only = undefined;
     s.sites = undefined;
+    // 終わったら途中経過は用済み（結果の行が出る）
+    s.progress = undefined;
+    s.progressAt = undefined;
     await writeAll(map);
     return NextResponse.json({ ok: true });
   }

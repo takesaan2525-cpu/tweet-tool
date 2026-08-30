@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Cast } from './api/line-webhook/casts';
 import { todayHours } from './castHours';
+import JobProgress from './JobProgress';
 
 /* ───────────────────────────────────────────────
    在籍キャストの管理パーツ（選ぶ → その子の画面）
@@ -30,6 +31,15 @@ import { todayHours } from './castHours';
 ─────────────────────────────────────────────── */
 
 type LineUser = { userId: string; name: string; at: string };
+
+/* 「サイトから削除」の進み具合（/api/jobs の cast_delete）。
+   ★2026-08-31 追加。それまでは押した直後の一言を出すだけで、
+     10分かかる削除が終わったかどうかが画面から一切わからなかった。 */
+type DelJob = {
+  status: 'idle' | 'queued' | 'running';
+  progress: string; startedAt: number | null;
+  lastRunAt: number | null; lastOk: boolean | null; lastMessage: string; lastTarget: string;
+};
 
 const BLANK: Partial<Cast> = { name: '', age: 0, height: 0, cup: '', type: '', hours: '', photo: '', comment: '' };
 
@@ -61,6 +71,32 @@ export default function StaffPanel() {
   /* ★読み込み前と「本当に0人」を区別する。同じ「読み込み中…」を出すと、
      名簿が空になった事故に気づけない。 */
   const [loaded, setLoaded] = useState(false);
+  /* 「サイトから削除」の進み具合。走っている間は5秒ごとに取り直す。 */
+  const [delJob, setDelJob] = useState<DelJob | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  async function loadDelJob() {
+    try {
+      const j: { jobs?: (DelJob & { id: string })[] } =
+        await fetch('/api/jobs', { cache: 'no-store' }).then((r) => r.json());
+      const d = j?.jobs?.find((x) => x.id === 'cast_delete');
+      if (d) setDelJob(d);
+    } catch { /* 取れなくても画面は動かす（進み具合が出ないだけ） */ }
+  }
+
+  /* 走っている間だけ細かく見に行く。止まっている時に5秒ごとに叩かない。 */
+  const delBusy = Boolean(delJob && delJob.status !== 'idle');
+  useEffect(() => {
+    loadDelJob();
+    const t = setInterval(loadDelJob, delBusy ? 5000 : 60000);
+    return () => clearInterval(t);
+  }, [delBusy]);
+  useEffect(() => {
+    if (!delBusy) return;
+    setNow(Date.now());
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [delBusy]);
 
   async function load() {
     const [c, u] = await Promise.all([
@@ -154,8 +190,10 @@ export default function StaffPanel() {
         body: JSON.stringify({ action: 'enqueue', id: 'cast_delete', only: c.name }),
       }).then((res) => res.json());
       setMsg(r?.ok
-        ? `✅ 「${c.name}」を各サイトから削除する指示を出しました。エステラブを含むので10分ほどかかります`
+        ? `✅ 「${c.name}」を各サイトから削除する指示を出しました。下に進み具合が出ます`
         : '⚠️ ' + (r?.error ?? '受け付けできませんでした'));
+      /* 押した直後は「待機」のままなので、すぐ取りに行って進み具合を出し始める */
+      if (r?.ok) { setDelJob((p) => (p ? { ...p, status: 'queued' } : p)); loadDelJob(); }
     } catch { setMsg('⚠️ 通信エラー'); }
     setSaving('');
   }
@@ -425,6 +463,26 @@ export default function StaffPanel() {
             ② 名簿から消す
           </button>
         </div>
+
+        {/* ★①を押したあと、終わったかどうかがここで分かるようにする。
+            走っている間は店のPCから届く途中経過、終わったら結果が残る。 */}
+        {delJob && (
+          <>
+            <JobProgress
+              status={delJob.status} progress={delJob.progress}
+              startedAt={delJob.startedAt} now={now}
+            />
+            {delJob.status === 'idle' && delJob.lastRunAt && (
+              <div className={`text-[11px] mt-2 leading-relaxed ${delJob.lastOk ? 'text-emerald-400' : 'text-amber-400'}`}>
+                {delJob.lastOk ? '✅' : '⚠️'}{' '}
+                {new Date(delJob.lastRunAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}{' '}
+                {delJob.lastMessage || (delJob.lastOk ? '完了' : '失敗')}
+                {/* 誰の削除だったかを必ず添える（別の子の結果を自分のだと思わないように） */}
+                {delJob.lastTarget && <span className="text-zinc-500">（{delJob.lastTarget}）</span>}
+              </div>
+            )}
+          </>
+        )}
       </Box>
     </div>
   );

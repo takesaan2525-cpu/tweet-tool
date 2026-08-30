@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import JobProgress from './JobProgress';
 
 /* ───────────────────────────────────────────────
    「今すぐ実行」パーツ（/status ページと、管理ダッシュボードの
@@ -26,6 +27,8 @@ type Job = {
   status: 'idle' | 'queued' | 'running';
   lastRunAt: number | null; lastOk: boolean | null; lastMessage: string;
   lastTarget: string;
+  /** 実行中に店のPCから届く「いま何をしているか」（2026-08-31 追加） */
+  progress: string; progressAt: number | null; startedAt: number | null;
   cooldownLeftSec: number; canRun: boolean;
 };
 
@@ -193,6 +196,15 @@ export default function JobsPanel() {
   useEffect(() => {
     load();
     const t = setInterval(load, busy ? 5000 : 30000);
+    return () => clearInterval(t);
+  }, [busy]);
+
+  /* 経過時間の表示を進めるための時計。動いているものが無い時は回さない。 */
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!busy) return;
+    setNow(Date.now());
+    const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, [busy]);
 
@@ -451,7 +463,12 @@ export default function JobsPanel() {
                     </div>
                   )}
 
-                  {j.lastRunAt && (
+                  {/* いま何をしているか。走っている間はここが数秒ごとに動く */}
+                  <JobProgress status={j.status} progress={j.progress} startedAt={j.startedAt} now={now} />
+
+                  {/* 前回の結果は、走っていない時だけ出す
+                      （実行中に「✅ 完了」が並ぶと、終わったのかと勘違いする） */}
+                  {j.status === 'idle' && j.lastRunAt && (
                     <div className={`text-[11px] mt-1.5 ${j.lastOk ? 'text-emerald-400' : 'text-amber-400'}`}>
                       {j.lastOk ? '✅' : '⚠️'} {hhmm(j.lastRunAt)} {j.lastMessage || (j.lastOk ? '完了' : '失敗')}
                       {/* 前回どの範囲で走ったか。「1人だけ直した」のか「全員に流した」のかが
