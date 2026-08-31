@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import JobProgress from './JobProgress';
+import JobDoneNotices from './JobDoneNotices';
+import useJobDone from './useJobDone';
 
 /* ───────────────────────────────────────────────
    「今すぐ実行」パーツ（/status ページと、管理ダッシュボードの
@@ -29,6 +31,8 @@ type Job = {
   lastTarget: string;
   /** 実行中に店のPCから届く「いま何をしているか」（2026-08-31 追加） */
   progress: string; progressAt: number | null; startedAt: number | null;
+  /** ふだんかかる秒数（前回の実測）。「あと約○分」の目安 */
+  etaSec: number | null;
   cooldownLeftSec: number; canRun: boolean;
 };
 
@@ -199,6 +203,13 @@ export default function JobsPanel() {
     return () => clearInterval(t);
   }, [busy]);
 
+  /* 終わったものを見つけて「終わりました」のお知らせを出す（×まで消えない） */
+  const { notices, dismiss, askDeviceNotice } = useJobDone(jobs);
+  const [deviceNotice, setDeviceNotice] = useState<string>('');
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) setDeviceNotice(Notification.permission);
+  }, []);
+
   /* 経過時間の表示を進めるための時計。動いているものが無い時は回さない。 */
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -270,6 +281,15 @@ export default function JobsPanel() {
     <>
       <div className="space-y-3">
         {jobs.length === 0 && <div className="text-sm text-zinc-500">読み込み中…</div>}
+
+        {/* 終わったもののお知らせ。畳んだ側で終わった時もここに出る＝
+            「詳しい操作」を開かないと結果に気づけない、を防ぐ。 */}
+        <JobDoneNotices
+          notices={notices}
+          onDismiss={dismiss}
+          onAskDeviceNotice={async () => setDeviceNotice(await askDeviceNotice())}
+          deviceNoticeState={deviceNotice}
+        />
 
         {/* ボタンの無い枠（求人ココアの店長ブログ）の残り回数 */}
         {infoOnly.length > 0 && (
@@ -464,7 +484,10 @@ export default function JobsPanel() {
                   )}
 
                   {/* いま何をしているか。走っている間はここが数秒ごとに動く */}
-                  <JobProgress status={j.status} progress={j.progress} startedAt={j.startedAt} now={now} />
+                  <JobProgress
+                    status={j.status} progress={j.progress}
+                    startedAt={j.startedAt} etaSec={j.etaSec} now={now}
+                  />
 
                   {/* 前回の結果は、走っていない時だけ出す
                       （実行中に「✅ 完了」が並ぶと、終わったのかと勘違いする） */}

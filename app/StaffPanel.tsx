@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Cast } from './api/line-webhook/casts';
 import { todayHours } from './castHours';
 import JobProgress from './JobProgress';
+import JobDoneNotices from './JobDoneNotices';
+import useJobDone from './useJobDone';
 
 /* ───────────────────────────────────────────────
    在籍キャストの管理パーツ（選ぶ → その子の画面）
@@ -36,8 +38,9 @@ type LineUser = { userId: string; name: string; at: string };
    ★2026-08-31 追加。それまでは押した直後の一言を出すだけで、
      10分かかる削除が終わったかどうかが画面から一切わからなかった。 */
 type DelJob = {
+  id: string; name: string;
   status: 'idle' | 'queued' | 'running';
-  progress: string; startedAt: number | null;
+  progress: string; startedAt: number | null; etaSec: number | null;
   lastRunAt: number | null; lastOk: boolean | null; lastMessage: string; lastTarget: string;
 };
 
@@ -77,12 +80,20 @@ export default function StaffPanel() {
 
   async function loadDelJob() {
     try {
-      const j: { jobs?: (DelJob & { id: string })[] } =
+      const j: { jobs?: DelJob[] } =
         await fetch('/api/jobs', { cache: 'no-store' }).then((r) => r.json());
       const d = j?.jobs?.find((x) => x.id === 'cast_delete');
       if (d) setDelJob(d);
     } catch { /* 取れなくても画面は動かす（進み具合が出ないだけ） */ }
   }
+
+  /* 削除が終わったら「終わりました」のお知らせを出す（×まで消えない）。
+     ★卒業は10分近くかかる＝押した人はたいてい画面を離れている。 */
+  const { notices, dismiss, askDeviceNotice } = useJobDone(delJob ? [delJob] : []);
+  const [deviceNotice, setDeviceNotice] = useState<string>('');
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) setDeviceNotice(Notification.permission);
+  }, []);
 
   /* 走っている間だけ細かく見に行く。止まっている時に5秒ごとに叩かない。 */
   const delBusy = Boolean(delJob && delJob.status !== 'idle');
@@ -468,9 +479,17 @@ export default function StaffPanel() {
             走っている間は店のPCから届く途中経過、終わったら結果が残る。 */}
         {delJob && (
           <>
+            <div className="mt-3">
+              <JobDoneNotices
+                notices={notices}
+                onDismiss={dismiss}
+                onAskDeviceNotice={async () => setDeviceNotice(await askDeviceNotice())}
+                deviceNoticeState={deviceNotice}
+              />
+            </div>
             <JobProgress
               status={delJob.status} progress={delJob.progress}
-              startedAt={delJob.startedAt} now={now}
+              startedAt={delJob.startedAt} etaSec={delJob.etaSec} now={now}
             />
             {delJob.status === 'idle' && delJob.lastRunAt && (
               <div className={`text-[11px] mt-2 leading-relaxed ${delJob.lastOk ? 'text-emerald-400' : 'text-amber-400'}`}>

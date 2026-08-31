@@ -45,6 +45,11 @@ export type JobState = {
   progress?: string;
   /** 途中経過を受け取った時刻(ms)。古い経過を「今の状況」として出さないため */
   progressAt?: number;
+  /* ★2026-09-01：前回かかった秒数。「あと何分か」の目安に使う。
+     ジョブによって数十秒〜30分と幅があり、固定の予想時間では役に立たない。
+     ＝そのお店の実測を目安にする。失敗した回は入れない（途中で落ちた
+     短い時間を「ふだんの所要時間」として覚えると、毎回すぐ100%になる）。 */
+  lastDurationSec?: number;
 };
 
 /** 旧形式（文字列1個）で保存された値も配列として読む */
@@ -131,6 +136,8 @@ export async function GET() {
       progressAt: s.status === 'running' ? (s.progressAt ?? null) : null,
       /** いつから走っているか（画面に「3分経過」と出すため） */
       startedAt: s.status === 'running' ? (s.startedAt ?? null) : null,
+      /** ふだんかかる秒数（前回の実測）。画面の「あと約○分」の目安。null＝まだ分からない */
+      etaSec: s.lastDurationSec ?? null,
       /** 前回どの範囲で走ったか（「1人だけ直したのに全員に見える」を防ぐ表示用） */
       lastTarget: s.lastTarget ?? '',
       lastRunAt: s.lastRunAt ?? null,
@@ -295,6 +302,16 @@ export async function POST(req: Request) {
     s.status = 'idle';
     s.lastRunAt = now;
     s.lastOk = Boolean((b as { ok?: unknown }).ok);
+    /* 次回の「あと約○分」の目安にする。成功した回だけ覚える。
+       ★急に長くなった回に引っ張られないよう、前回との間を取る（半分ずつ）。 */
+    if (s.lastOk && s.startedAt) {
+      const sec = Math.round((now - s.startedAt) / 1000);
+      if (sec > 0 && sec < 60 * 60) {
+        s.lastDurationSec = s.lastDurationSec
+          ? Math.round((s.lastDurationSec + sec) / 2)
+          : sec;
+      }
+    }
     s.lastMessage = String((b as { message?: unknown }).message ?? '').slice(0, 300);
     /* ★何を対象に走ったかを結果と一緒に残す。これが無いと
        「1人だけ選んで押した」のか「全員に流した」のかが後から分からない。 */
