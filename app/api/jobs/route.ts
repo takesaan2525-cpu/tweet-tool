@@ -20,6 +20,9 @@ import { getCasts } from '../casts/route';
 
 
 const KEY = 'growup_jobs_v1';
+/** 途中経過の置き場（ジョブごとに別キー）。startedAt で「今回の実行の経過か」を見分ける */
+const PROGRESS_KEY = 'growup_jobs_progress_v1:';
+type Progress = { startedAt: number; message: string; at: number };
 const IMPORT_SECRET = process.env.IMPORT_SECRET ?? '';
 
 export type JobState = {
@@ -92,7 +95,10 @@ function normalize(map: Record<string, JobState>): Record<string, JobState> {
       s.status = 'idle';
       s.lastOk = false;
       s.lastMessage = '応答がないため中断扱いにしました（店のPCが止まっている可能性）';
-      s.lastRunAt = now;
+      /* 🔴★2026-09-16：ここで lastRunAt = now にしていた。GETのたびに now が入るので
+         クールタイムが永遠に「あと120秒」から減らず、ボタンが押せなくなった
+         （9:07の結果が消えて running のまま残り、夜まで押せなかった）。
+         下の queued と同じく、何も動いていないのだから消費させない。 */
     }
     if (s.status === 'queued' && now - (s.queuedAt ?? 0) > STALE_QUEUED_MS) {
       s.status = 'idle';
@@ -114,6 +120,14 @@ function normalize(map: Record<string, JobState>): Record<string, JobState> {
 export async function GET() {
   const map = normalize(await readAll());
   const now = Date.now();
+  // 実行中のジョブだけ途中経過を読む（今回の実行＝startedAt一致のものだけ使う）
+  for (const s of Object.values(map)) {
+    if (s.status !== 'running') continue;
+    try {
+      const p = await redis.get<Progress>(PROGRESS_KEY + s.id);
+      if (p && p.startedAt === s.startedAt) { s.progress = p.message; s.progressAt = p.at; }
+    } catch (e) { dbWarn('jobs.readProgress', e); }
+  }
   const list = JOBS.map((j) => {
     const s = map[j.id] ?? { id: j.id, status: 'idle' as const };
     const since = now - (s.lastRunAt ?? 0);
@@ -284,13 +298,22 @@ export async function POST(req: Request) {
      結果(report)と違って「まだ終わっていない」ので、状態は running のまま。
      ★実行中のものにしか書かない。runnerの送信が遅れて結果の後に届いた時に、
        終わったジョブへ「いま○○中」と書き戻してしまうのを防ぐ。 */
+  /* 🔴★2026-09-16：途中経過は別のキーに書く（全体の表には書き戻さない）。
+     以前は表ごと読んで書き戻していたため、runnerが投げっぱなしにした途中経過が
+     結果(report)より遅れて届くと「読んだ時点＝実行中」の表で結果を上書きし、
+     終わったジョブが running に戻っていた。9/16 9:07 のひよりの回がこれで消え、
+     27分後から「中断扱い」表示＋ボタンが押せないまま夜まで残った。 */
   if (action === 'progress') {
     const id = String((b as { id?: unknown }).id ?? '');
     const s = map[id];
     if (!s || s.status !== 'running') return NextResponse.json({ ok: true, ignored: true });
-    s.progress = String((b as { message?: unknown }).message ?? '').slice(0, 200);
-    s.progressAt = now;
-    await writeAll(map);
+    const p: Progress = {
+      startedAt: s.startedAt ?? 0,
+      message: String((b as { message?: unknown }).message ?? '').slice(0, 200),
+      at: now,
+    };
+    try { await redis.set(PROGRESS_KEY + id, p, { ex: 6 * 60 * 60 }); }
+    catch (e) { dbWarn('jobs.progress', e); }
     return NextResponse.json({ ok: true });
   }
 
