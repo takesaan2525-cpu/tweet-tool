@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import TemplateEditor from './TemplateEditor';
 
 /* ───────────────────────────────────────────────
    投稿時刻の編集パーツ（/times ページと、管理ダッシュボードの
@@ -238,6 +239,12 @@ export default function TimesEditor({ embedded = false }: { embedded?: boolean }
                             最終変更：{new Date(c.updatedAt).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                           </div>
                         )}
+
+                        {/* ★2026-10-13：文面そのものの編集（タイトル・本文）。
+                            時刻の編集とは別の保存ボタンを持つ独立した部品にしてある。
+                            紐づく文面が無いコンテンツ（駅ちか上位表示など）では
+                            中で null を返すので、ここには何も出ない。 */}
+                        <TemplateEditor timesId={c.id} />
                       </>
                     )}
                   </div>
