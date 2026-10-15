@@ -69,7 +69,9 @@ function clean(def: TemplateDef, rawTitle: unknown, rawBody: unknown):
   const body = String(rawBody ?? '').replace(/\r\n/g, '\n');
 
   if (!title) return { ok: false, error: 'タイトルが空です' };
-  if (!body.trim()) return { ok: false, error: '本文が空です' };
+  /* ★駅ちかのニュースは「タイトルのみ・本文は空」が媒体の正しい設定なので、
+     本文必須にすると1件も保存できなくなる（2026-10-14）。 */
+  if (!def.bodyOptional && !body.trim()) return { ok: false, error: '本文が空です' };
   if (title.length > def.titleMax) {
     return { ok: false, error: `タイトルは${def.titleMax}文字までです（いま${title.length}文字）` };
   }
@@ -89,13 +91,20 @@ export async function GET() {
     titleMax: set.titleMax,
     bodyMax: set.bodyMax,
     photoHint: set.photoHint ?? '',
-    templates: set.templates.map((name) => ({
-      name,
+    /* ★PC側(templates_sync.js)は shape と file を見て、どのJSONをどう書き換えるか決める。 */
+    shape: set.shape,
+    file: set.file,
+    bodyOptional: Boolean(set.bodyOptional),
+    templates: set.templates.map((t) => ({
+      /* name は保存の宛名（key）。label は画面に出す見出し。
+         全国ランキングのように「タイトルを直しても宛名は変えない」ものがあるので分けてある。 */
+      name: t.key,
+      label: t.label,
       // 未登録＝まだ店のPCから種を貰っていない。PC側はこれを見て今のJSONを送ってくる
-      title: store.items[name]?.title ?? null,
-      body: store.items[name]?.body ?? null,
-      updatedAt: store.items[name]?.updatedAt ?? null,
-      canUndo: Boolean(store.prev[name]),
+      title: store.items[t.key]?.title ?? null,
+      body: store.items[t.key]?.body ?? null,
+      updatedAt: store.items[t.key]?.updatedAt ?? null,
+      canUndo: Boolean(store.prev[t.key]),
     })),
   }));
   return NextResponse.json({ sets, now: Date.now() });

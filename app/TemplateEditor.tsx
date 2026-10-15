@@ -17,7 +17,10 @@ import { useEffect, useState } from 'react';
 ─────────────────────────────────────────────── */
 
 type Tpl = {
+  /** 保存の宛名（key）。画面には出さない */
   name: string;
+  /** 画面に出す見出し */
+  label: string;
   title: string | null;
   body: string | null;
   updatedAt: number | null;
@@ -25,7 +28,7 @@ type Tpl = {
 };
 type TplSet = {
   id: string; name: string; desc: string;
-  titleMax: number; bodyMax: number; photoHint: string;
+  titleMax: number; bodyMax: number; photoHint: string; bodyOptional?: boolean;
   templates: Tpl[];
 };
 
@@ -62,7 +65,7 @@ export default function TemplateEditor({ timesId }: { timesId: string }) {
     if (!set) return;
     const d = draft[t.name];
     if (!d) return;
-    if (!window.confirm(`「${t.name}」の文面を保存します。\n\n次の投稿から、この内容に差し替わります。\n\nよろしいですか？`)) return;
+    if (!window.confirm(`「${t.label}」の文面を保存します。\n\n次の投稿から、この内容に差し替わります。\n\nよろしいですか？`)) return;
     setBusy(t.name);
     try {
       const r = await fetch('/api/templates', {
@@ -77,7 +80,7 @@ export default function TemplateEditor({ timesId }: { timesId: string }) {
   }
 
   async function undo(t: Tpl) {
-    if (!window.confirm(`「${t.name}」を直前の内容に戻します。よろしいですか？`)) return;
+    if (!window.confirm(`「${t.label}」を直前の内容に戻します。よろしいですか？`)) return;
     setBusy(t.name);
     try {
       const r = await fetch('/api/templates', {
@@ -101,7 +104,7 @@ export default function TemplateEditor({ timesId }: { timesId: string }) {
           const d = draft[t.name] ?? { title: '', body: '' };
           const dirty = d.title !== (t.title ?? '') || d.body !== (t.body ?? '');
           const tooLong = d.title.length > set.titleMax || d.body.length > set.bodyMax;
-          const empty = !d.title.trim() || !d.body.trim();
+          const empty = !d.title.trim() || (!set.bodyOptional && !d.body.trim());
           const isOpen = open === t.name;
           return (
             <div key={t.name} className="bg-zinc-950 rounded-xl border border-zinc-800 overflow-hidden">
@@ -109,7 +112,7 @@ export default function TemplateEditor({ timesId }: { timesId: string }) {
                 onClick={() => setOpen(isOpen ? '' : t.name)}
                 className="w-full text-left px-3 py-2.5 flex items-center justify-between gap-2"
               >
-                <span className="text-xs text-zinc-300 min-w-0 truncate">{t.name}</span>
+                <span className="text-xs text-zinc-300 min-w-0 truncate">{t.label}</span>
                 <span className="text-[11px] text-zinc-500 shrink-0">
                   {dirty ? '未保存' : isOpen ? '閉じる' : '直す'}
                 </span>
