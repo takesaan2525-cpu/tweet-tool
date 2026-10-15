@@ -32,7 +32,19 @@ type TplSet = {
   templates: Tpl[];
 };
 
-export default function TemplateEditor({ timesId }: { timesId: string }) {
+/* 🔴★2026-10-15：時刻表に紐づかない文面も出せるようにした。
+
+   きっかけ＝駅ちかのニュース文面を足したが、**画面に1度も出ていなかった**。
+   この部品は「時刻表の各項目の中」に置く作りで、同じidの時刻表が無いと
+   何も描かない。駅ちかのお知らせは10分おきの**間隔式で時刻表を持たない**ため、
+   受け皿が無く、作ったのに中村さんからは見えない状態だった。
+   （こちらは本番APIに文面が入ったのを見て「できた」と報告してしまった。
+     画面に出ているかを確かめていなかった。）
+
+   ＝standalone を渡すと、時刻表とは独立した1枚のカードとして描く。 */
+export default function TemplateEditor(
+  { timesId, standalone = false }: { timesId: string; standalone?: boolean },
+) {
   const [set, setSet] = useState<TplSet | null>(null);
   const [draft, setDraft] = useState<Record<string, { title: string; body: string }>>({});
   const [open, setOpen] = useState<string>('');
@@ -95,8 +107,14 @@ export default function TemplateEditor({ timesId }: { timesId: string }) {
   }
 
   return (
-    <div className="mt-5 pt-4 border-t border-zinc-800">
-      <div className="text-xs font-bold text-zinc-300">文面を直す</div>
+    <div className={standalone
+      ? 'bg-zinc-900 rounded-2xl border border-zinc-800 p-4'
+      : 'mt-5 pt-4 border-t border-zinc-800'}>
+      {/* 単独カードのときは、どの媒体の話か分かるよう媒体名を見出しにする
+          （時刻表の中なら、親が既に媒体名を出している） */}
+      <div className="text-xs font-bold text-zinc-300">
+        {standalone ? set.name : '文面を直す'}
+      </div>
       <div className="text-[11px] text-zinc-500 mt-1">{set.desc}</div>
 
       <div className="space-y-2 mt-3">

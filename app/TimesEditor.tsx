@@ -2,6 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import TemplateEditor from './TemplateEditor';
+import { TEMPLATE_SETS } from './templates.config';
+
+/** 文面セットのid一覧。時刻表に同じidが無いものは、下に独立したカードで出す
+    （駅ちかのお知らせのように、時刻表を持たない媒体のため）。 */
+const ORPHAN_TEMPLATE_IDS = TEMPLATE_SETS.map((s) => s.id);
 
 /* ───────────────────────────────────────────────
    投稿時刻の編集パーツ（/times ページと、管理ダッシュボードの
@@ -57,6 +62,14 @@ export default function TimesEditor({ embedded = false }: { embedded?: boolean }
   useEffect(() => { load(); }, []);
 
   const say = (m: string) => { setToast(m); setTimeout(() => setToast(''), 6000); };
+
+  /* 🔴★2026-10-15：時刻表を持たない媒体の文面は、独立したカードとして下に並べる。
+
+     きっかけ＝駅ちかのニュース文面を足したのに、**画面に1度も出ていなかった**。
+     文面は「時刻表の各項目の中」に出す作りで、同じidの時刻表が無いと描かれない。
+     駅ちかのお知らせは10分おきの間隔式で時刻表を持たないため、受け皿が無かった。
+     ＝ここで拾って下に出す。新しい媒体を足したときも、時刻表が無ければ自動でここに出る。 */
+  const orphanIds = ORPHAN_TEMPLATE_IDS.filter((id) => !contents.some((c) => c.id === id));
 
   function edit(id: string, fn: (s: Slot[]) => Slot[]) {
     setDraft((p) => ({ ...p, [id]: fn(p[id] ?? []) }));
@@ -253,6 +266,14 @@ export default function TimesEditor({ embedded = false }: { embedded?: boolean }
             );
           })}
         </div>
+
+        {loaded && orphanIds.length > 0 && (
+          <div className="space-y-3 mt-3">
+            {orphanIds.map((id) => (
+              <TemplateEditor key={id} timesId={id} standalone />
+            ))}
+          </div>
+        )}
 
         <p className="text-[11px] text-zinc-600 mt-6 text-center leading-relaxed">
           時刻を早い方にずらしたときは、その日はもう過ぎた枠として扱われます<br />（変えた瞬間にまとめて投稿されないようにするためです）。
